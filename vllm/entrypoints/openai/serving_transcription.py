@@ -25,8 +25,11 @@ from vllm.utils import PlaceholderModule
 
 try:
     import librosa
+    import audioread
+    import tempfile
 except ImportError:
     librosa = PlaceholderModule("librosa")  # type: ignore[assignment]
+    audioread = PlaceholderModule("audioread")  # type: ignore[assignment]
 
 logger = init_logger(__name__)
 
@@ -201,8 +204,19 @@ class OpenAIServingTranscription(OpenAIServing):
         if len(audio_data) / 1024**2 > MAX_AUDIO_CLIP_FILESIZE_MB:
             raise ValueError("Maximum file size exceeded.")
 
-        with io.BytesIO(audio_data) as bytes_:
-            y, sr = librosa.load(bytes_)
+        def load_audio(audio_data: bytes):
+            file_bytes_content = audio_data
+            try:
+                with io.BytesIO(file_bytes_content) as bytes_:
+                    out = librosa.load(bytes_, sr=None)
+            except:
+                temp_name = tempfile.NamedTemporaryFile().name
+                with tempfile.NamedTemporaryFile() as temp:
+                    temp.write(file_bytes_content)
+                    audio_read_obj = audioread.audio_open(temp.name)
+                    out = librosa.load(audio_read_obj, sr=None)
+            return out
+        y, sr = load_audio(audio_data)
 
         duration = librosa.get_duration(y=y, sr=sr)
         if duration > self.max_audio_clip_s:
